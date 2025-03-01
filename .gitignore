@@ -22,3 +22,5 @@ Thumbs.db
 config/config.ini
 
 credentials/*
+input/*
+output/*
