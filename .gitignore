@@ -1,0 +1,24 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+
+# Log files
+*.log
+
+# Configuration files with sensitive information (if you don't want to commit them)
+config/config.ini
+
+credentials/*
