@@ -85,7 +85,6 @@ def get_threads_chunk(service, token, max_results=200):
 
 
 def get_messages(service, thread):
-    print(f"Working with thread: {thread['id']}")
     tdata = (
         service.users().threads().get(userId="me", id=thread['id']).execute()
     )
@@ -102,6 +101,7 @@ def get_messages(service, thread):
 
 
 if __name__ == "__main__":
+    # TODO: add timestamped logging
     prepare_file_structure()
     creds = get_credentials('../credentials/token.json', './credentials/client_secret.json', SCOPES)
     service = build("gmail", "v1", credentials=creds)
@@ -121,11 +121,15 @@ if __name__ == "__main__":
     ids = [t['id'] for t in all_threads]
     print(f"Got {str(len(set(ids)))} unique IDs in total.")
 
-    for thread in all_threads:
-        print(f"Working with thread: {thread['id']}")
+    all_threads_count = len(all_threads)
+    for i, thread in enumerate(all_threads, 1):
+        progress_msg = f"Working with thread: {thread['id']}."
+        if i % 100 == 0:
+            progress_msg += f" Progress: {i} out of {all_threads_count}."
 
         thread_output = []
         messages = get_messages(service, thread)
+        # TODO: add threading
         for msg in messages:
             msg_data = get_message_details(msg)
             if len(msg_data['attachments']) > 0:
