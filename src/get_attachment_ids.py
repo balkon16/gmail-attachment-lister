@@ -1,93 +1,21 @@
 import json
 import os
-import re
 import os.path
 import logging
 import base64
 
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-# If modifying these scopes, delete the file token.json.
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+from modules.utils import Utils
+from modules.credentials import CredentialsManager
+from modules.transform import Transformer
 
+CREDENTIALS_DIR = './credentials'
 
 # TODO: the script should be divided into three parts:
 #  > getting Gmail's results page
 #  > getting attachment info (e.g. message ID, attachment ID)
 #  > getting the file
-
-
-def get_credentials(token_path, client_secret_path, scopes):
-    creds = None
-    if os.path.exists(token_path):
-        creds = Credentials.from_authorized_user_file(token_path, scopes)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                client_secret_path, SCOPES
-            )
-            creds = flow.run_local_server(port=0)
-        with open(token_path, "w") as token:
-            token.write(creds.to_json())
-    return creds
-
-
-def prepare_file_structure():
-    os.makedirs("./output", exist_ok=True)
-    os.makedirs("./output/attachments", exist_ok=True)
-    os.makedirs("./credentials", exist_ok=True)
-
-
-def extract_emails(text):
-    """
-    Extracts email addresses from a string and returns them as a list.
-    Handles names and angle brackets around the email addresses.
-
-    Args:
-      text: The input string.
-
-    Returns:
-      A list of email addresses found in the string.  Returns an empty list if no emails are found.
-    """
-    email_pattern = r"<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>"
-    emails = re.findall(email_pattern, text)
-    return emails
-
-
-def get_message_details(message):
-    msg_details = {
-        "id": message["id"]
-    }
-
-    headers_to_get = {'Subject', 'To', 'Cc', 'From'}
-
-    for h in message['payload']['headers']:
-        if h['name'] in headers_to_get:
-            if h['name'] in {'Cc', 'To', 'From'}:
-                msg_details[h['name']] = re.findall(r"<(.*?)>", h['value'])
-            else:
-                msg_details[h['name']] = h['value']
-
-    mime_types = {'application/pdf', 'image/png', 'image/jpeg'}
-
-    msg_details['attachments'] = []
-
-    parts = message['payload'].get('parts', [])
-    for p in parts:
-        if p['mimeType'] in mime_types:
-            msg_details['attachments'].append(
-                {
-                    "id": p['body']['attachmentId'],
-                    "filename": p['filename']
-                }
-            )
-
-    return msg_details
 
 
 def get_threads_chunk(service, token, max_results=200):
@@ -131,14 +59,18 @@ def get_and_save_attachment(service, message_id, attachment_id, filename, output
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    logging.info("Preparing file structure.")
-    prepare_file_structure()
+    Utils.prepare_file_structure()
 
-    logging.info("Getting credentials.")
-    creds = get_credentials('../credentials/token.json', './credentials/client_secret.json', SCOPES)
+    creds_manager = CredentialsManager(
+        os.path.join(CREDENTIALS_DIR, 'token.json'),
+        os.path.join(CREDENTIALS_DIR, 'client_secret.json'),
+        ["https://www.googleapis.com/auth/gmail.readonly"]
+    )
+
+
 
     logging.info("Building service.")
-    service = build("gmail", "v1", credentials=creds)
+    service = build("gmail", "v1", credentials=creds_manager.get_credentials())
 
     max_results = 50  # dev
     i = 0  # dev
@@ -146,7 +78,7 @@ if __name__ == "__main__":
     logging.info(f"Getting page no. {i}")
 
     while i < 1 and next_page_token:  # i < x -> dev
-    # while next_page_token:
+        # while next_page_token:
         i += 1
         logging.info(f"Getting page no. {i}")
         threads, next_page_token = get_threads_chunk(service, next_page_token, max_results)
@@ -167,7 +99,7 @@ if __name__ == "__main__":
         messages = get_messages(service, thread)
 
         for msg in messages:
-            msg_data = get_message_details(msg)
+            msg_data = Transformer.get_message_details(msg)
             if len(msg_data['attachments']) > 0:
                 thread_output.append(msg_data)
 
