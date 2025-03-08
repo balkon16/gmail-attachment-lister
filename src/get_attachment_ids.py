@@ -2,6 +2,8 @@ import json
 import os
 import re
 import os.path
+import logging
+import base64
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -12,9 +14,10 @@ from googleapiclient.discovery import build
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
-# TODO: given an attachment API, get its content
-#  https://developers.google.com/gmail/api/reference/rest/v1/users.messages.attachments/get
-# TODO: transform attachments from base64 to readable format
+# TODO: the script should be divided into three parts:
+#  > getting Gmail's results page
+#  > getting attachment info (e.g. message ID, attachment ID)
+#  > getting the file
 
 
 def get_credentials(token_path, client_secret_path, scopes):
@@ -36,6 +39,7 @@ def get_credentials(token_path, client_secret_path, scopes):
 
 def prepare_file_structure():
     os.makedirs("./output", exist_ok=True)
+    os.makedirs("./output/attachments", exist_ok=True)
     os.makedirs("./credentials", exist_ok=True)
 
 
@@ -56,7 +60,9 @@ def extract_emails(text):
 
 
 def get_message_details(message):
-    msg_details = dict()
+    msg_details = {
+        "id": message["id"]
+    }
 
     headers_to_get = {'Subject', 'To', 'Cc', 'From'}
 
@@ -74,7 +80,12 @@ def get_message_details(message):
     parts = message['payload'].get('parts', [])
     for p in parts:
         if p['mimeType'] in mime_types:
-            msg_details['attachments'].append(p['body']['attachmentId'])
+            msg_details['attachments'].append(
+                {
+                    "id": p['body']['attachmentId'],
+                    "filename": p['filename']
+                }
+            )
 
     return msg_details
 
@@ -100,41 +111,70 @@ def get_messages(service, thread):
     return all_messages
 
 
+def get_and_save_attachment(service, message_id, attachment_id, filename, output_path='./output/attachments'):
+    attachment_resp = service.users().messages().attachments().get(
+        userId='me', messageId=message_id, id=attachment_id).execute()
+
+    file_data = attachment_resp['data']
+    file_data = file_data.replace('-', '+').replace('_', '/')  # Decode base64
+
+    decoded_data = base64.b64decode(file_data)
+
+    file_path = os.path.join(output_path, filename)
+
+    with open(file_path, 'wb') as f:
+        f.write(decoded_data)
+
+    logging.info(f"Got and saved {filename}.")
+
+
 if __name__ == "__main__":
-    # TODO: add timestamped logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+    logging.info("Preparing file structure.")
     prepare_file_structure()
+
+    logging.info("Getting credentials.")
     creds = get_credentials('../credentials/token.json', './credentials/client_secret.json', SCOPES)
+
+    logging.info("Building service.")
     service = build("gmail", "v1", credentials=creds)
 
     max_results = 50  # dev
     i = 0  # dev
     all_threads, next_page_token = get_threads_chunk(service, None, max_results)
-    print(f"Getting page no. {i}")
+    logging.info(f"Getting page no. {i}")
 
     while i < 1 and next_page_token:  # i < x -> dev
+    # while next_page_token:
         i += 1
-        print(f"Getting page no. {i}")
+        logging.info(f"Getting page no. {i}")
         threads, next_page_token = get_threads_chunk(service, next_page_token, max_results)
         all_threads.extend(threads)
 
-    print(f"Got {str(len(all_threads))} threads in total.")
+    logging.info(f"Got {str(len(all_threads))} threads in total.")
     ids = [t['id'] for t in all_threads]
-    print(f"Got {str(len(set(ids)))} unique IDs in total.")
+    logging.info(f"Got {str(len(set(ids)))} unique IDs in total.")
 
     all_threads_count = len(all_threads)
     for i, thread in enumerate(all_threads, 1):
         progress_msg = f"Working with thread: {thread['id']}."
         if i % 100 == 0:
             progress_msg += f" Progress: {i} out of {all_threads_count}."
+        logging.info(progress_msg)
 
         thread_output = []
         messages = get_messages(service, thread)
-        # TODO: add threading
+
         for msg in messages:
             msg_data = get_message_details(msg)
             if len(msg_data['attachments']) > 0:
                 thread_output.append(msg_data)
 
         if len(thread_output) > 0:
+            for output_dict in thread_output:
+                msg_id = output_dict['id']
+                for attachment in output_dict['attachments']:
+                    get_and_save_attachment(service, msg_id, attachment['id'], attachment['filename'])
             with open(f"./output/{thread['id']}_data.json", "w") as outfile:
                 json.dump(thread_output, outfile, indent=4, ensure_ascii=False, sort_keys=True)
