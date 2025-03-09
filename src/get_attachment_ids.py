@@ -9,6 +9,7 @@ from googleapiclient.discovery import build
 from modules.utils import Utils
 from modules.credentials import CredentialsManager
 from modules.transform import Transformer
+from modules.fetch import ThreadFetcher
 
 CREDENTIALS_DIR = './credentials'
 
@@ -16,6 +17,7 @@ CREDENTIALS_DIR = './credentials'
 #  > getting Gmail's results page
 #  > getting attachment info (e.g. message ID, attachment ID)
 #  > getting the file
+# TODO: can you use more than one thread when getting data using the next page token?
 
 
 def get_threads_chunk(service, token, max_results=200):
@@ -72,41 +74,38 @@ if __name__ == "__main__":
     logging.info("Building service.")
     service = build("gmail", "v1", credentials=creds_manager.get_credentials())
 
-    max_results = 50  # dev
-    i = 0  # dev
-    all_threads, next_page_token = get_threads_chunk(service, None, max_results)
-    logging.info(f"Getting page no. {i}")
+    # this operation takes around 1 minute using a single thread
+    # this operation takes around 1 minute using 4 threads and doesn't retrieve all data
+    #   -> needed rework with network issues in mind
+    fetcher = ThreadFetcher(service, num_threads=1)
 
-    while i < 1 and next_page_token:  # i < x -> dev
-        # while next_page_token:
-        i += 1
-        logging.info(f"Getting page no. {i}")
-        threads, next_page_token = get_threads_chunk(service, next_page_token, max_results)
-        all_threads.extend(threads)
-
+    all_threads = fetcher.get_all_threads()
     logging.info(f"Got {str(len(all_threads))} threads in total.")
     ids = [t['id'] for t in all_threads]
     logging.info(f"Got {str(len(set(ids)))} unique IDs in total.")
 
     all_threads_count = len(all_threads)
-    for i, thread in enumerate(all_threads, 1):
-        progress_msg = f"Working with thread: {thread['id']}."
-        if i % 100 == 0:
-            progress_msg += f" Progress: {i} out of {all_threads_count}."
-        logging.info(progress_msg)
+    # logging.info(f"There are {all_threads_count} in total.")
+    # exit(0)
 
-        thread_output = []
-        messages = get_messages(service, thread)
-
-        for msg in messages:
-            msg_data = Transformer.get_message_details(msg)
-            if len(msg_data['attachments']) > 0:
-                thread_output.append(msg_data)
-
-        if len(thread_output) > 0:
-            for output_dict in thread_output:
-                msg_id = output_dict['id']
-                for attachment in output_dict['attachments']:
-                    get_and_save_attachment(service, msg_id, attachment['id'], attachment['filename'])
-            with open(f"./output/{thread['id']}_data.json", "w") as outfile:
-                json.dump(thread_output, outfile, indent=4, ensure_ascii=False, sort_keys=True)
+    # for i, thread in enumerate(all_threads, 1):
+    #     progress_msg = f"Working with thread: {thread['id']}."
+    #     if i % 100 == 0:
+    #         progress_msg += f" Progress: {i} out of {all_threads_count}."
+    #     logging.info(progress_msg)
+    #
+    #     thread_output = []
+    #     messages = get_messages(service, thread)
+    #
+    #     for msg in messages:
+    #         msg_data = Transformer.get_message_details(msg)
+    #         if len(msg_data['attachments']) > 0:
+    #             thread_output.append(msg_data)
+    #
+    #     if len(thread_output) > 0:
+    #         for output_dict in thread_output:
+    #             msg_id = output_dict['id']
+    #             for attachment in output_dict['attachments']:
+    #                 get_and_save_attachment(service, msg_id, attachment['id'], attachment['filename'])
+    #         with open(f"./output/{thread['id']}_data.json", "w") as outfile:
+    #             json.dump(thread_output, outfile, indent=4, ensure_ascii=False, sort_keys=True)
