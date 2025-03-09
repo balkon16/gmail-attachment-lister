@@ -60,7 +60,8 @@ class ThreadFetcher:
             return resp.get("threads", []), resp.get("nextPageToken")
         except Exception as e:
             logging.error(f"Error fetching threads with token {token}: {e}")
-            return [], None  # Return empty list and None to signal an error
+            raise e
+            # return [], None  # Return empty list and None to signal an error
 
     def _worker(self):
         """Worker thread function."""

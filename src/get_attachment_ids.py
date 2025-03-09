@@ -80,11 +80,13 @@ if __name__ == "__main__":
     fetcher = ThreadFetcher(service, num_threads=1)
 
     all_threads = fetcher.get_all_threads()
+    all_threads_count = len(all_threads)
     logging.info(f"Got {str(len(all_threads))} threads in total.")
     ids = [t['id'] for t in all_threads]
     logging.info(f"Got {str(len(set(ids)))} unique IDs in total.")
 
-    all_threads_count = len(all_threads)
+    with open('./output/thread_ids.json', 'w') as wh:
+        json.dump(ids, wh, indent=4, ensure_ascii=False)
     # logging.info(f"There are {all_threads_count} in total.")
     # exit(0)
 
